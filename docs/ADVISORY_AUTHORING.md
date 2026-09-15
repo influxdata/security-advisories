@@ -16,7 +16,7 @@ You need the following before drafting an advisory:
 - **Assessment data** from Security and Engineering for each issue the
   release fixes: a short description of the issue and its impact, the
   affected versions, the CVSS score for each issue in InfluxData's own code,
-  and any mitigations for users who cannot upgrade immediately.
+  and any workarounds for users who cannot upgrade immediately.
 - **The fixing release** version number and its expected ship date.
 - **Permission** to create draft advisories in this repository. Ask the
   repository administrators if you do not have it.
@@ -39,7 +39,7 @@ Keep these rules in mind throughout:
 | Step              | Owner teams                    | What happens                                                                                                  |
 | :---------------- | :----------------------------- | :------------------------------------------------------------------------------------------------------------ |
 | 1. Identification | Security, Engineering          | Issues that need advisory coverage are identified during triage and fix work.                                 |
-| 2. Assessment     | Security, Engineering, Product | Impact, affected versions, severity, and mitigations are established. Security supplies fix and impact prose. |
+| 2. Assessment     | Security, Engineering, Product | Impact, affected versions, severity, and workarounds are established. Security supplies fix and impact prose. |
 | 3. Authoring      | Product                        | The author creates the draft advisory in this repository using the assessment data and this guide.            |
 | 4. Review         | Security, Engineering, Product | Reviewers check the draft for accuracy, clarity, and completeness.                                            |
 | 5. Publishing     | Product                        | The advisory is published as part of the fixing release's process.                                            |
@@ -162,9 +162,12 @@ range.
 ## Description template
 
 The description is the part of the advisory most readers see first, and it
-is what appears in notifications and API results. Copy this template and
-delete the sections that do not apply. Every advisory has the opening
-sentence; the rest depends on what the release fixes.
+is what appears in notifications and API results. The form prepopulates the
+field with GitHub's default template of Impact, Patches, Workarounds, and
+References. Delete it and use the template below instead. It keeps the same
+sections, but groups them under each issue, because one advisory can cover
+several issues. Every advisory has the opening sentence; the rest depends on
+what the release fixes.
 
 ```markdown
 <Product> <version> fixes the following security issues.
@@ -173,10 +176,18 @@ sentence; the rest depends on what the release fixes.
 
 CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N (6.2, Medium)
 
-<What the issue is, which component it affects, and the conditions under
-which it can be exploited. One or two paragraphs.>
+### Impact
 
-**Mitigation:** Upgrade to <version>. If you cannot upgrade, <workaround>.
+<What the issue is, which component it affects, who is affected, and the
+conditions under which it can be exploited. One or two paragraphs.>
+
+### Patches
+
+Fixed in <version>.
+
+### Workarounds
+
+<What to do if you cannot upgrade, or "None.">
 
 ## <Language> toolchain
 
@@ -188,7 +199,10 @@ affect <Product>.
 Updated <module> to <version> to fix <CVE> (<upstream score and rating>),
 which was confirmed to affect <Product>.
 
-**Mitigation:** Upgrade to <version>. If you cannot upgrade, <workaround>.
+## References
+
+- [<Product> <version> release notes](<url>)
+- [<Fixing pull request or commit>](<url>)
 ```
 
 Section by section:
@@ -200,13 +214,23 @@ Section by section:
   The heading names the affected component and the kind of problem, with
   the CVE in parentheses if one exists. For example,
   `Credential exposure in inputs.http debug logs (CVE-2026-12345)`. The
-  first line under the heading is the CVSS vector with its score and rating.
-  Then describe the issue, and end with the mitigation.
-- **Toolchain.** One section listing every toolchain CVE confirmed to affect the
-  product. Do not list CVEs that were fixed in the toolchain update but do not
-  affect the product. Omit the section if there are none.
+  first line under the heading is the CVSS vector with its score and rating,
+  followed by three `###` subsections:
+  - **Impact** describes the issue, the affected component, who is affected,
+    and the conditions required to exploit it.
+  - **Patches** states the version that fixes it.
+  - **Workarounds** tells readers who cannot upgrade what to do. Write
+    "None." if there is no workaround. Do not omit the subsection.
+- **Toolchain.** One section listing every toolchain CVE confirmed to affect
+  the product. Do not list CVEs that were fixed in the toolchain update but
+  do not affect the product. Omit the section if there are none.
 - **Dependencies.** One section per urgent dependency issue, or omit the
-  section. Routine dependency refreshes belong in release notes, not here.
+  section. Add a **Workarounds** subsection if one exists. Routine
+  dependency refreshes belong in release notes, not here.
+- **References.** Links readers can follow for more detail: the release
+  notes for the fixing release, the fixing pull requests or commits, and the
+  reporter's public issue if there is one. Omit the section only if there is
+  nothing to link.
 
 For a complete example, see the [worked example](#worked-example).
 
@@ -225,7 +249,7 @@ The points below are the ones that matter most in an advisory.
 - **Be factual and calm.** State what the issue is, what it affects, and what
   to do. Do not minimize ("a minor issue") or dramatize ("a serious flaw").
 - **Lead with the action.** Readers want to know whether they are affected
-  and what to do about it. Put the affected conditions and the mitigation
+  and what to do about it. Put the affected conditions and the workaround
   where they are easy to find.
 - **Say only what is known.** Do not speculate about exploitation in the
   wild, do not promise future fixes or dates, and do not describe the
@@ -269,7 +293,7 @@ Reviewers confirm each of the following before the advisory is published:
       exactly.
 - [ ] The advisory severity is the highest CVSS score among issues in
       InfluxData's own code.
-- [ ] Each mitigation is correct and complete.
+- [ ] Each workaround is correct and complete, or stated as none.
 - [ ] Any CVE request has been made and, if assigned, the ID matches the
       description.
 - [ ] Credits have been accepted by the people named.
@@ -339,11 +363,24 @@ Telegraf 1.39.2 fixes the following security issues.
 
 CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N (6.2, Medium)
 
+### Impact
+
 When debug logging is enabled, the `inputs.http` plugin logs full request headers, including `Authorization` headers. Anyone with read access to Telegraf's logs can recover credentials used by the plugin. Telegraf versions earlier than 1.39.2 with `debug = true` and at least one `inputs.http` plugin configured are affected.
 
-**Mitigation:** Upgrade to 1.39.2. If you cannot upgrade, disable debug logging and rotate any credentials that may have been logged.
+### Patches
+
+Fixed in 1.39.2.
+
+### Workarounds
+
+Disable debug logging and rotate any credentials that may have been logged.
 
 ## Go toolchain
 
 Updated to Go 1.26.5 to fix CVE-2026-42505 (`crypto/tls`) and CVE-2026-39822 (`os`), both confirmed to affect Telegraf.
+
+## References
+
+- [Telegraf 1.39.2 release notes](https://github.com/influxdata/telegraf/releases/tag/v1.39.2)
+- [Fixing pull request](https://github.com/influxdata/telegraf/pull/<number>)
 ```
