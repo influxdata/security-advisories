@@ -12,6 +12,11 @@ Advisories are published using GitHub's repository security advisory feature,
 so they appear under the [Security tab](https://github.com/influxdata/security-advisories/security)
 of this repository rather than as files in the repository itself.
 
+> [!NOTE]
+> Telegraf is the pilot product for this program. Other InfluxData products
+> will be added over time. Until then, they continue to communicate security
+> fixes through their release notes.
+
 ## What an advisory contains
 
 Advisories contain the security fixes included in a specific release, the
