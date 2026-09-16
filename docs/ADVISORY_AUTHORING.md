@@ -46,12 +46,11 @@ Keep these rules in mind throughout:
 
 ## Create the draft
 
-1. Open the repository's [Security tab](https://github.com/influxdata/security-advisories/security)
-   and click **Advisories** in the sidebar.
-2. Click **New draft security advisory**.
-3. Fill in the form using the [field conventions](#field-conventions) below.
-4. Click **Create draft security advisory**.
-5. Add reviewers who do not already have access as collaborators on the
+1. Open the repository's [Advisories page](https://github.com/influxdata/security-advisories/security/advisories)
+   and click **New draft security advisory**.
+2. Fill in the form using the [field conventions](#field-conventions) below.
+3. Click **Create draft security advisory**.
+4. Add reviewers who do not already have access as collaborators on the
    draft so they can read and comment on it.
 
 For GitHub's own instructions, see
@@ -96,8 +95,9 @@ dependency CVEs are listed in the description, not here.
 
 ### Affected products
 
-The **Affected products** section is how readers and InfluxData's tooling
-identify which product an advisory applies to. Fill it in exactly as follows:
+The **Affected products** section is how readers and the advisory build
+pipeline identify which product an advisory applies to. Fill it in exactly as
+follows:
 
 | Form field        | Value                                                                                                     |
 | ----------------- | --------------------------------------------------------------------------------------------------------- |
@@ -122,10 +122,11 @@ as `< 1.39.2`.
 
 #### Product package names
 
-Package names are lowercase, hyphen-separated identifiers. InfluxData's
-tooling matches on the exact string, so use the names in this table and do
-not invent variants. To add a product, add a row here and notify Engineering
-so that tooling recognizes it.
+Package names are lowercase, hyphen-separated identifiers. The advisory
+build pipeline in this repository matches on the exact string to build the
+per-product advisory lists, so use the names in this table and do not invent
+variants. To add a product, add a row here and update the build pipeline to
+recognize the new name.
 
 | Product                    | Package name                | Notes                                                                                                       |
 | :------------------------- | :-------------------------- | :---------------------------------------------------------------------------------------------------------- |
@@ -150,14 +151,15 @@ issues. Handle this as follows:
 - In the **Severity** field, select **Assess severity using CVSS** and enter
   the vector of the highest-scoring issue in InfluxData's own code.
 - Do not compute CVSS for toolchain or dependency issues. Report the upstream
-  score in the description if one exists.
+  score in the description if one exists, as information only, because it may
+  not reflect how the product uses the affected code (see next point).
 - If the advisory contains no issues in InfluxData's own code, select the
   severity level that Security assigned during assessment instead of entering
-  a CVSS vector.
+  a CVSS vector. Expect this to be the common case, because most releases
+  contain only toolchain and dependency fixes.
 
-GitHub's severity levels are **Low**, **Moderate**, **High**, and
-**Critical**. CVSS calls the second level "Medium"; both refer to the same
-range.
+GitHub's severity levels map directly to the CVSS levels, with one naming
+difference: GitHub's **Moderate** is CVSS **Medium**.
 
 ## Description template
 
@@ -167,11 +169,13 @@ field with GitHub's default template of Impact, Patches, Workarounds, and
 References. Delete it and use the template below instead. It keeps the same
 sections, but groups them under each issue, because one advisory can cover
 several issues. Every advisory has the opening sentence; the rest depends on
-what the release fixes.
+what the release fixes. The comments in the template mark which sections are
+optional. Delete them as you fill in the form.
 
 ```markdown
 <Product> <version> fixes the following security issues.
 
+<!-- One section per issue in InfluxData's own code. Omit if there are none. -->
 ## <Issue title> (CVE-YYYY-NNNNN)
 
 CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N (6.2, Medium)
@@ -189,11 +193,13 @@ Fixed in <version>.
 
 <What to do if you cannot upgrade, or "None.">
 
+<!-- Omit if the release has no toolchain update. -->
 ## <Language> toolchain
 
 Updated to <language> <version> to fix <CVE list>, which were confirmed to
 affect <Product>.
 
+<!-- Omit if the release has no urgent dependency fixes. -->
 ## Dependencies
 
 Updated <module> to <version> to fix <CVE> (<upstream score and rating>),
@@ -202,6 +208,7 @@ which was confirmed to affect <Product>.
 ## References
 
 - [<Product> <version> release notes](<url>)
+<!-- Add pull requests or commits only when the release notes do not identify the fix. -->
 - [<Fixing pull request or commit>](<url>)
 ```
 
@@ -209,7 +216,8 @@ Section by section:
 
 - **Opening sentence.** Names the product and version and nothing else.
   Readers scanning a list of advisories should be able to tell from this
-  line whether the advisory applies to them.
+  line whether the advisory applies to them. Write "issue" rather than
+  "issues" when the release fixes only one.
 - **Issue sections.** One `##` section per issue in InfluxData's own code.
   The heading names the affected component and the kind of problem, with
   the CVE in parentheses if one exists. For example,
@@ -227,10 +235,12 @@ Section by section:
 - **Dependencies.** One section per urgent dependency issue, or omit the
   section. Add a **Workarounds** subsection if one exists. Routine
   dependency refreshes belong in release notes, not here.
-- **References.** Links readers can follow for more detail: the release
-  notes for the fixing release, the fixing pull requests or commits, and the
-  reporter's public issue if there is one. Omit the section only if there is
-  nothing to link.
+- **References.** Always link the release notes for the fixing release.
+  Link individual pull requests or commits only when they add something the
+  release notes do not, for example when the release notes do not identify
+  which change fixed the issue, or when the change itself helps readers judge
+  their exposure. Add the reporter's public issue if there is one. Keep the
+  list short.
 
 For a complete example, see the [worked example](#worked-example).
 
@@ -308,8 +318,8 @@ Reviewers confirm each of the following before the advisory is published:
    **Publish advisory**.
 3. Link to the advisory from the release notes for the fixing release.
 
-InfluxData's tooling picks up published advisories automatically. No further
-action is needed.
+The advisory build pipeline picks up published advisories automatically. No
+further action is needed.
 
 For GitHub's own instructions, see
 [Publishing a repository security advisory](https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/publishing-a-repository-security-advisory).
