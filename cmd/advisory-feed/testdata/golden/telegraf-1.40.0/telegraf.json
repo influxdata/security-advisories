@@ -2,6 +2,7 @@
   "feedVersion": 1,
   "product": "telegraf",
   "feedTimestamp": "2026-09-23T15:00:00Z",
+  "notice": "Generated for use by InfluxData products. The format of this file is not a supported API and may change without notice. Published InfluxData security advisories are at https://github.com/influxdata/security-advisories/security/advisories and are available through the GitHub REST API at https://api.github.com/repos/influxdata/security-advisories/security-advisories",
   "advisories": [
     {
       "id": "GHSA-wf3f-qrcr-xvx5",

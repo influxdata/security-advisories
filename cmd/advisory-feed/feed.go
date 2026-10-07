@@ -19,6 +19,12 @@ const (
 	maxFeedBytes     = 10 * 1024 * 1024
 )
 
+// feedNotice tells anyone who opens a feed file what it is for and where
+// the supported source of advisories lives. It must not end in a period:
+// the text ends with a URL, and a trailing period gets swallowed into the
+// link by most renderers.
+const feedNotice = "Generated for use by InfluxData products. The format of this file is not a supported API and may change without notice. Published InfluxData security advisories are at https://github.com/influxdata/security-advisories/security/advisories and are available through the GitHub REST API at https://api.github.com/repos/influxdata/security-advisories/security-advisories"
+
 var severityLevels = []string{"critical", "high", "medium", "low"}
 
 // Feed is one product's feed file.
@@ -26,6 +32,7 @@ type Feed struct {
 	FeedVersion   int     `json:"feedVersion"`
 	Product       string  `json:"product"`
 	FeedTimestamp string  `json:"feedTimestamp"`
+	Notice        string  `json:"notice"`
 	Advisories    []Entry `json:"advisories"`
 }
 
@@ -71,7 +78,7 @@ func feedPath(product string) string {
 func BuildFeeds(raw []RawAdvisory, reg Registry) (map[string]*Feed, error) {
 	feeds := make(map[string]*Feed, len(reg.Products))
 	for _, p := range reg.Products {
-		feeds[p] = &Feed{FeedVersion: feedVersion, Product: p, Advisories: []Entry{}}
+		feeds[p] = &Feed{FeedVersion: feedVersion, Product: p, Notice: feedNotice, Advisories: []Entry{}}
 	}
 	for _, a := range raw {
 		if a.State != "published" && a.State != "withdrawn" {

@@ -130,13 +130,41 @@ func TestBuildFeedsTwoProducts(t *testing.T) {
 }
 
 func TestMarshalShape(t *testing.T) {
-	got, err := Marshal(&Feed{FeedVersion: feedVersion, Product: "telegraf", FeedTimestamp: testTimestamp, Advisories: []Entry{}})
+	got, err := Marshal(&Feed{FeedVersion: feedVersion, Product: "telegraf", FeedTimestamp: testTimestamp, Notice: feedNotice, Advisories: []Entry{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"feedVersion\": 1,\n  \"product\": \"telegraf\",\n  \"feedTimestamp\": \"" + testTimestamp + "\",\n  \"advisories\": []\n}\n"
+	// feedNotice is plain ASCII with no quotes or backslashes, so its JSON
+	// encoding is the text itself.
+	want := "{\n  \"feedVersion\": 1,\n  \"product\": \"telegraf\",\n  \"feedTimestamp\": \"" + testTimestamp + "\",\n  \"notice\": \"" + feedNotice + "\",\n  \"advisories\": []\n}\n"
 	if string(got) != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestBuildFeedsCarriesNotice checks that every feed, including an empty
+// one, carries the notice and that the notice points readers at the stable
+// sources: the advisories page and the GitHub REST API.
+func TestBuildFeedsCarriesNotice(t *testing.T) {
+	feeds, err := BuildFeeds(loadRaw(t, "telegraf-1.40.0.json"), testRegistry)
+	if err != nil {
+		t.Fatalf("BuildFeeds: %v", err)
+	}
+	for _, f := range feeds {
+		if f.Notice != feedNotice {
+			t.Errorf("feed for %s has notice %q, want feedNotice", f.Product, f.Notice)
+		}
+	}
+	for _, url := range []string{
+		"https://github.com/influxdata/security-advisories/security/advisories",
+		"https://api.github.com/repos/influxdata/security-advisories/security-advisories",
+	} {
+		if !strings.Contains(feedNotice, url) {
+			t.Errorf("notice must point to %s", url)
+		}
+	}
+	if strings.HasSuffix(feedNotice, ".") {
+		t.Error("notice must not end in a period: it follows a URL, and a trailing period gets swallowed into the link")
 	}
 }
 

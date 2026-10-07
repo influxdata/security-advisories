@@ -44,7 +44,7 @@ func TestGenerateWritesChangedFeedsOnly(t *testing.T) {
 
 	// The CDN already serves an up-to-date empty Controller feed and nothing
 	// for Telegraf, so only Telegraf should be written.
-	controller := &Feed{FeedVersion: feedVersion, Product: "telegraf-controller", FeedTimestamp: "2026-01-01T00:00:00Z", Advisories: []Entry{}}
+	controller := &Feed{FeedVersion: feedVersion, Product: "telegraf-controller", FeedTimestamp: "2026-01-01T00:00:00Z", Notice: feedNotice, Advisories: []Entry{}}
 	cdn := servedFeed(t, controller)
 	defer cdn.Close()
 
