@@ -1,0 +1,200 @@
+name: Publish advisory feeds
+
+# Regenerates the per-product advisory feeds, signs them the same way
+# influxdb3_ui signs its WASM release artifacts (see that repo's
+# wasm-publish.yml), and uploads the signed feeds to the Cloudflare R2
+# bucket behind https://dl.influxdata.com.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   FEED_BASE_URL                 Public base URL the feeds are served
+#                                 from, e.g. https://dl.influxdata.com/security-advisories
+#   QUAY_RSIGN_USERNAME           Quay.io username for pulling the
+#                                 internal rsign image.
+#   QUAY_RSIGN_PASSWORD           Quay.io password/token for the same.
+#   RSIGN_SSH_SECKEY              SSH private key rsign uses to reach the
+#                                 signing service.
+#   CLOUDFLARE_R2_ENDPOINT        R2 S3-compatible endpoint, e.g.
+#                                 https://<account id>.r2.cloudflarestorage.com
+#   CLOUDFLARE_R2_ACCESS_KEY_ID   R2 API token access key ID.
+#   CLOUDFLARE_R2_SECRET_ACCESS_KEY R2 API token secret access key.
+#   CLOUDFLARE_R2_BUCKET          Name of the R2 bucket mapped to
+#                                 dl.influxdata.com.
+#
+# The sign job runs on the same self-hosted runner group as
+# influxdb3_ui's signing job, since it needs the same Quay/rsign access.
+#
+# Until these secrets are set, the run logs a warning and stops after
+# generating nothing, rather than failing.
+
+on:
+  schedule:
+    # New advisories are published rarely; poll often enough that a fresh
+    # advisory shows up in the feed within the hour without hammering the
+    # GitHub API.
+    - cron: "17 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - "products.json"
+      - "cmd/advisory-feed/**"
+      - ".github/workflows/publish-feeds.yml"
+  workflow_dispatch:
+    inputs:
+      allow_shrink:
+        description: "Write feeds even if they have fewer advisories than currently served"
+        type: boolean
+        default: false
+
+# Serialize publishes so two runs never race to write the same feed files.
+concurrency:
+  group: publish-feeds
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    name: Generate feeds
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.generate.outputs.changed }}
+    permissions:
+      contents: read
+      security-events: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Generate feeds
+        id: generate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FEED_BASE_URL: ${{ secrets.FEED_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$FEED_BASE_URL" ]; then
+            echo "::warning::FEED_BASE_URL is not set yet; skipping generate and upload."
+            exit 0
+          fi
+          flags=(--feed-base-url "$FEED_BASE_URL" --out dist)
+          if [ "${{ inputs.allow_shrink }}" = "true" ]; then
+            flags+=(--allow-shrink)
+          fi
+          go run ./cmd/advisory-feed generate "${flags[@]}" | tee generate.log
+          if grep -q '^changed=true$' generate.log; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload generated feeds
+        if: steps.generate.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: feeds
+          path: dist/v1/*.json
+          if-no-files-found: error
+
+  sign-feeds:
+    name: Sign feeds
+    needs: generate
+    if: needs.generate.outputs.changed == 'true'
+    runs-on:
+      group: self-hosted
+    permissions:
+      contents: read
+    steps:
+      - name: Create workspace directory
+        run: |
+          echo "WORKSPACE=$(mktemp -d)" >>"${GITHUB_ENV}"
+
+      - name: Download generated feeds
+        uses: actions/download-artifact@v4
+        with:
+          name: feeds
+          path: ${{ env.WORKSPACE }}
+
+      - name: Pull code signing image
+        env:
+          QUAY_RSIGN_USERNAME: ${{ secrets.QUAY_RSIGN_USERNAME }}
+          QUAY_RSIGN_PASSWORD: ${{ secrets.QUAY_RSIGN_PASSWORD }}
+        run: |
+          docker login quay.io \
+            -u "${QUAY_RSIGN_USERNAME}" \
+            -p "${QUAY_RSIGN_PASSWORD}"
+          docker image pull quay.io/influxdb/rsign:latest
+
+      - name: Sign feeds
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          RSIGN_SSH_SECKEY: ${{ secrets.RSIGN_SSH_SECKEY }}
+        run: |
+          eval "$(ssh-agent -s)"
+          ssh-add - <<< "${RSIGN_SSH_SECKEY}"
+          trap 'ssh-agent -k' EXIT
+
+          docker run -i \
+              -v "${PWD}:/project" \
+              -v "$SSH_AUTH_SOCK:/ssh-agent" \
+              -e   SSH_AUTH_SOCK=/ssh-agent  \
+              --rm quay.io/influxdb/rsign:latest \
+                  bash -c 'cd /project && for f in *.json; do rsign "$f"; done'
+
+      - name: Upload signed feeds
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-feeds
+          path: |
+            ${{ env.WORKSPACE }}/*.json
+            ${{ env.WORKSPACE }}/*.json.asc
+          if-no-files-found: error
+
+      - name: Cleanup workspace directory
+        if: always()
+        run: rm -rf "${WORKSPACE}"
+
+  publish:
+    name: Upload signed feeds to Cloudflare R2
+    needs: sign-feeds
+    if: needs.generate.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download signed feeds
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-feeds
+          path: artifacts
+
+      - name: Upload to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # R2's S3-compatible endpoint doesn't support the checksum
+          # headers the AWS CLI sends by default since v2.13; without this
+          # PutObject/sync calls fail against R2.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_ENDPOINT" ]; then
+            echo "::warning::Cloudflare R2 secrets are not set yet; skipping upload. Feeds were generated and signed but not published."
+            exit 0
+          fi
+          aws s3 sync artifacts/ "s3://${R2_BUCKET}/security-advisories/v1/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --exclude "*" --include "*.json" \
+            --content-type application/json \
+            --cache-control "public, max-age=300"
+          aws s3 sync artifacts/ "s3://${R2_BUCKET}/security-advisories/v1/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --exclude "*" --include "*.json.asc" \
+            --cache-control "public, max-age=300"
