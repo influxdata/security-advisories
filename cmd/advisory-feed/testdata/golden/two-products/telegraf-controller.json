@@ -1,0 +1,27 @@
+{
+  "feedVersion": 1,
+  "product": "telegraf-controller",
+  "feedTimestamp": "2026-09-23T15:00:00Z",
+  "notice": "Generated for use by InfluxData products. The format of this file is not a supported API and may change without notice. Published InfluxData security advisories are at https://github.com/influxdata/security-advisories/security/advisories and are available through the GitHub REST API at https://api.github.com/repos/influxdata/security-advisories/security-advisories",
+  "advisories": [
+    {
+      "id": "GHSA-aaaa-bbbb-cccc",
+      "cve": "CVE-2026-31402",
+      "url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-aaaa-bbbb-cccc",
+      "summary": "Telegraf 1.38.1 and Telegraf Controller 1.2.0 security release",
+      "description": "Telegraf 1.38.1 and Telegraf Controller 1.2.0 fix the following security issue.\r\n\r\n## Go toolchain\r\n\r\nUpdated to Go 1.26.1 to fix CVE-2026-31402 (`crypto/tls`), confirmed to affect both products.\r\n\r\n## References\r\n\r\n- [Telegraf 1.38.1 release notes](https://docs.influxdata.com/telegraf/v1/release-notes/#v1381)\r\n",
+      "severity": "high",
+      "cvss": null,
+      "published": "2026-03-17T10:00:00Z",
+      "updated": "2026-03-18T09:30:00Z",
+      "withdrawn": null,
+      "affected": [
+        {
+          "introduced": null,
+          "fixed": "1.2.0"
+        }
+      ],
+      "cwes": []
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+[
+  {
+    "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+    "cve_id": "CVE-2026-31402",
+    "html_url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-aaaa-bbbb-cccc",
+    "summary": "Telegraf 1.38.1 and Telegraf Controller 1.2.0 security release",
+    "description": "Telegraf 1.38.1 and Telegraf Controller 1.2.0 fix the following security issue.\r\n\r\n## Go toolchain\r\n\r\nUpdated to Go 1.26.1 to fix CVE-2026-31402 (`crypto/tls`), confirmed to affect both products.\r\n\r\n## References\r\n\r\n- [Telegraf 1.38.1 release notes](https://docs.influxdata.com/telegraf/v1/release-notes/#v1381)\r\n",
+    "severity": "high",
+    "state": "published",
+    "published_at": "2026-03-17T10:00:00Z",
+    "updated_at": "2026-03-18T09:30:00Z",
+    "withdrawn_at": null,
+    "vulnerabilities": [
+      {
+        "package": { "ecosystem": "", "name": "telegraf" },
+        "vulnerable_version_range": ">= 1.30.0, < 1.38.1",
+        "patched_versions": "1.38.1",
+        "vulnerable_functions": []
+      },
+      {
+        "package": { "ecosystem": "", "name": "telegraf-controller" },
+        "vulnerable_version_range": "< 1.2.0",
+        "patched_versions": "1.2.0",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": { "vector_string": null, "score": null },
+      "cvss_v4": { "vector_string": null, "score": null }
+    },
+    "cwes": [],
+    "cwe_ids": [],
+    "credits": []
+  },
+  {
+    "ghsa_id": "GHSA-dddd-eeee-ffff",
+    "cve_id": null,
+    "html_url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-dddd-eeee-ffff",
+    "summary": "Telegraf 1.36.0 security release",
+    "description": "Telegraf 1.36.0 fixes the following security issue.\r\n\r\n## Withdrawn\r\n\r\nThis advisory was published in error.\r\n",
+    "severity": "low",
+    "state": "withdrawn",
+    "published_at": "2025-09-30T00:00:00Z",
+    "updated_at": "2025-10-02T12:00:00Z",
+    "withdrawn_at": "2025-10-02T12:00:00Z",
+    "vulnerabilities": [
+      {
+        "package": { "ecosystem": "other", "name": "telegraf" },
+        "vulnerable_version_range": "< 1.36.0",
+        "patched_versions": "1.36.0",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": { "vector_string": null, "score": null },
+      "cvss_v4": { "vector_string": null, "score": null }
+    },
+    "cwes": [],
+    "cwe_ids": [],
+    "credits": []
+  },
+  {
+    "ghsa_id": "GHSA-1111-2222-3333",
+    "cve_id": null,
+    "html_url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-1111-2222-3333",
+    "summary": "Draft that must not appear in any feed",
+    "description": "",
+    "severity": null,
+    "state": "draft",
+    "published_at": null,
+    "updated_at": "2026-09-01T00:00:00Z",
+    "withdrawn_at": null,
+    "vulnerabilities": [
+      {
+        "package": { "ecosystem": "", "name": "not-a-product" },
+        "vulnerable_version_range": "= 0.0.0",
+        "patched_versions": null,
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": { "cvss_v3": null, "cvss_v4": null },
+    "cwes": [],
+    "cwe_ids": [],
+    "credits": []
+  }
+]

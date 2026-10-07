@@ -1,0 +1,43 @@
+{
+  "feedVersion": 1,
+  "product": "telegraf",
+  "feedTimestamp": "2026-09-23T15:00:00Z",
+  "notice": "Generated for use by InfluxData products. The format of this file is not a supported API and may change without notice. Published InfluxData security advisories are at https://github.com/influxdata/security-advisories/security/advisories and are available through the GitHub REST API at https://api.github.com/repos/influxdata/security-advisories/security-advisories",
+  "advisories": [
+    {
+      "id": "GHSA-wf3f-qrcr-xvx5",
+      "cve": null,
+      "url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-wf3f-qrcr-xvx5",
+      "summary": "Telegraf 1.40.0 security release",
+      "description": "Telegraf 1.40.0 fixes the following security issues.\r\n\r\n## Agent crash from schema-mismatched metrics in outputs.parquet\r\n\r\n### Impact\r\n\r\nA Parquet file's schema is fixed by the first metrics written to it. In `outputs.parquet`, a later metric with a tag or field whose type differs from the existing column, or a metric with a field or tag named `timestamp` that collides with the reserved timestamp column, caused an unrecovered panic on the output's flush goroutine. The panic terminated the whole Telegraf process, stopping every input and output on that agent, and restarting did not help while the client kept sending.\r\n\r\nOnly agents with a specific configuration are affected: a network listener input, such as `inputs.socket_listener`, `inputs.http_listener_v2`, `inputs.influxdb_listener`, or `inputs.influxdb_v2_listener`, that routes metrics to `outputs.parquet`. In that configuration, any client that can reach the listener can trigger the crash with a single line of line protocol. `inputs.socket_listener` has no authentication, and the HTTP listener inputs require credentials only when `basic_username` and `basic_password` are set. Agents that write only locally collected metrics to `outputs.parquet` are not affected.\r\n\r\n### Patches\r\n\r\nFixed in 1.40.0. Fields and tags that collide with the reserved timestamp column are dropped and logged, and metrics that do not match the file schema are rejected with an error instead of causing a panic.\r\n\r\n### Workarounds\r\n\r\nAccept metrics only from trusted clients: restrict network access to listener ports and set `basic_username` and `basic_password` on HTTP listener inputs. Adding `fieldexclude = [\"timestamp\"]` and `tagexclude = [\"timestamp\"]` to the `outputs.parquet` plugin blocks the simplest trigger, but not metrics whose tag and field types conflict.\r\n\r\n## Output stall from invalid measurement names in outputs.parquet\r\n\r\n### Impact\r\n\r\n`outputs.parquet` used the measurement name unchanged as the output file name. A name that is too long for the file system or that contains a NUL byte made file creation fail. The failed batch was retried with the same metric on every flush, so the plugin wrote nothing until that metric was evicted from the buffer, which by default happens only after 10,000 newer metrics. On an agent where `outputs.parquet` is the only output, no data is delivered for that period.\r\n\r\nThe same configuration is required as for the first issue: a network listener input that routes metrics to `outputs.parquet`, where any client that can reach the listener can send a metric with an arbitrary measurement name.\r\n\r\n### Patches\r\n\r\nFixed in 1.40.0. Metrics whose names cannot be used as file names are rejected with a logged error and no longer block later metrics.\r\n\r\n### Workarounds\r\n\r\nSet `namepass` on the `outputs.parquet` plugin to the measurement names you expect so that other names are never written, and restrict listener access as described in the first issue.\r\n\r\n## Path traversal through measurement names in outputs.parquet\r\n\r\n### Impact\r\n\r\nA measurement name containing `../` caused `outputs.parquet` to write the Parquet file outside the configured `directory`. The file name always ends in `-<date>-<epoch>.parquet`, the contents are always a valid Parquet file, existing files are not overwritten, and missing directories are not created, so the impact is limited to placing a Parquet file with attacker-controlled rows into an existing directory that Telegraf can write to, such as a directory another system ingests Parquet files from.\r\n\r\nThe same configuration is required as for the first issue: a network listener input that routes metrics to `outputs.parquet`.\r\n\r\n### Patches\r\n\r\nFixed in 1.40.0. Files are created relative to the configured directory with operating-system enforcement, so a name cannot escape it.\r\n\r\n### Workarounds\r\n\r\nSet `namepass` on the `outputs.parquet` plugin to the measurement names you expect, and restrict listener access as described in the first issue.\r\n\r\n## References\r\n\r\n- [Telegraf 1.40.0 release notes](https://docs.influxdata.com/telegraf/v1/release-notes/#v1400)\r\n",
+      "severity": "medium",
+      "cvss": {
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "score": 5.9
+      },
+      "published": "2026-09-17T17:18:32Z",
+      "updated": "2026-09-17T17:18:32Z",
+      "withdrawn": null,
+      "affected": [
+        {
+          "introduced": "1.32.0",
+          "fixed": "1.40.0"
+        }
+      ],
+      "cwes": [
+        {
+          "id": "CWE-22",
+          "name": "Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+        },
+        {
+          "id": "CWE-73",
+          "name": "External Control of File Name or Path"
+        },
+        {
+          "id": "CWE-248",
+          "name": "Uncaught Exception"
+        }
+      ]
+    }
+  ]
+}
