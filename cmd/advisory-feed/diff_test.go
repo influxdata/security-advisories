@@ -144,8 +144,15 @@ func TestUnchanged(t *testing.T) {
 
 func TestCheckShrink(t *testing.T) {
 	served := sampleFeed("GHSA-cccc-cccc-cccc", "GHSA-ffff-ffff-ffff")
-	if err := CheckShrink(sampleFeed("GHSA-cccc-cccc-cccc"), served); err == nil || !strings.Contains(err.Error(), "shrink") {
-		t.Errorf("want a shrink error, got %v", err)
+	err := CheckShrink(sampleFeed("GHSA-cccc-cccc-cccc"), served)
+	if err == nil || !strings.Contains(err.Error(), "shrink") || !strings.Contains(err.Error(), "GHSA-ffff-ffff-ffff") {
+		t.Errorf("want a shrink error naming the missing advisory, got %v", err)
+	}
+	// Same count, but one served advisory replaced by a new one: history
+	// would silently vanish, so this must fail too.
+	err = CheckShrink(sampleFeed("GHSA-cccc-cccc-cccc", "GHSA-gggg-gggg-gggg"), served)
+	if err == nil || !strings.Contains(err.Error(), "GHSA-ffff-ffff-ffff") {
+		t.Errorf("a feed that swaps a served advisory for a new one must fail naming the missing id, got %v", err)
 	}
 	if err := CheckShrink(sampleFeed("GHSA-cccc-cccc-cccc", "GHSA-ffff-ffff-ffff"), served); err != nil {
 		t.Errorf("same size must pass: %v", err)

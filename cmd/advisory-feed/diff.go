@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 )
 
 // CDN reads the feeds currently served to consumers.
@@ -61,12 +62,27 @@ func Unchanged(data, served []byte, timestamp string) (bool, error) {
 	return reflect.DeepEqual(next, prev), nil
 }
 
-// CheckShrink fails when next has fewer advisories than served. Advisories
-// are never deleted, so a smaller feed means the API returned incomplete
-// data.
+// CheckShrink fails when any advisory that served carries is missing from
+// next. Advisories are never deleted, only withdrawn, so a served advisory
+// the API no longer returns means the API returned incomplete data. The
+// check is by id rather than by count so that a feed which swaps one
+// advisory for another cannot silently drop history.
 func CheckShrink(next, served *Feed) error {
-	if served != nil && len(next.Advisories) < len(served.Advisories) {
-		return fmt.Errorf("feed for %s would shrink from %d advisories to %d; the API may have returned incomplete data", next.Product, len(served.Advisories), len(next.Advisories))
+	if served == nil {
+		return nil
+	}
+	have := make(map[string]bool, len(next.Advisories))
+	for _, e := range next.Advisories {
+		have[e.ID] = true
+	}
+	var missing []string
+	for _, e := range served.Advisories {
+		if !have[e.ID] {
+			missing = append(missing, e.ID)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("feed for %s would shrink: served advisories missing from the new feed: %s; the API may have returned incomplete data", next.Product, strings.Join(missing, ", "))
 	}
 	return nil
 }
