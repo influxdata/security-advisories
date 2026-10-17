@@ -1,0 +1,176 @@
+version: 2.1
+
+# Publish advisory feeds
+#
+# Regenerates the per-product advisory feeds, signs them with rsign the same
+# way InfluxData's other CircleCI release pipelines sign their artifacts, and
+# uploads the signed feeds to the Cloudflare R2 bucket behind
+# https://dl.influxdata.com.
+#
+# Triggers:
+#   - Hourly scheduled pipeline on main. Schedules live in the CircleCI UI,
+#     not in this file: Project Settings > Triggers > Add Trigger, schedule
+#     "every hour", branch "main". New advisories are published rarely, so
+#     hourly is often enough for a fresh advisory to show up within the hour
+#     without hammering the GitHub API.
+#   - Manual: "Trigger Pipeline" on main, optionally setting the
+#     allow-shrink parameter to true.
+#
+# Required project environment variables (Project Settings > Environment
+# Variables):
+#   FEED_BASE_URL                   Public base URL the feeds are served
+#                                   from, e.g. https://dl.influxdata.com/security-advisories
+#   GITHUB_TOKEN                    Optional. Raises the GitHub API rate limit
+#                                   for the generator. Advisories are public,
+#                                   so a token with no scopes is enough.
+#   QUAY_RSIGN_USERNAME             Quay.io username for pulling the
+#                                   internal rsign image.
+#   QUAY_RSIGN_PASSWORD             Quay.io password/token for the same.
+#   CLOUDFLARE_R2_ACCESS_KEY_ID     R2 API token access key ID.
+#   CLOUDFLARE_R2_SECRET_ACCESS_KEY R2 API token secret access key.
+#   CLOUDFLARE_R2_ENDPOINT          R2 S3-compatible endpoint, e.g.
+#                                   https://<account id>.r2.cloudflarestorage.com
+#   CLOUDFLARE_R2_BUCKET            Name of the R2 bucket mapped to
+#                                   dl.influxdata.com.
+#
+# Restrict both contexts to the main branch (and protect them with a
+# security group) so only trusted pipelines can sign or publish.
+#
+# Until FEED_BASE_URL is set, the run logs a warning and stops after
+# generating nothing, rather than failing.
+
+parameters:
+  allow-shrink:
+    description: Write feeds even if they have fewer advisories than currently served
+    type: boolean
+    default: false
+
+jobs:
+  generate:
+    docker:
+      - image: cimg/go:1.26
+    steps:
+      - checkout
+      - run:
+          name: Generate feeds
+          command: |
+            set -euo pipefail
+            # Always create the directory so persist_to_workspace has
+            # something to save; downstream jobs treat "no *.json" as
+            # "nothing changed".
+            mkdir -p dist/v1
+            if [ -z "${FEED_BASE_URL:-}" ]; then
+              echo "WARNING: FEED_BASE_URL is not set yet; skipping generate and upload."
+              exit 0
+            fi
+            flags=(--feed-base-url "$FEED_BASE_URL" --out dist)
+            if [ "<< pipeline.parameters.allow-shrink >>" = "true" ]; then
+              flags+=(--allow-shrink)
+            fi
+            go run ./cmd/advisory-feed generate "${flags[@]}"
+      - persist_to_workspace:
+          root: dist
+          paths:
+            - v1
+
+  sign-feeds:
+    circleci_ip_ranges: true
+    docker:
+      - image: quay.io/influxdb/rsign:latest
+        auth:
+          username: $QUAY_RSIGN_USERNAME
+          password: $QUAY_RSIGN_PASSWORD
+    shell: /bin/sh -eu
+    working_directory: /tmp/workspace
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
+          name: Stop if no feeds changed
+          command: |
+            if ! ls v1/*.json >/dev/null 2>&1; then
+              echo "No feeds changed; nothing to sign or publish."
+              circleci-agent step halt
+            fi
+      - add_ssh_keys
+      - run:
+          name: Sign feeds
+          command: |
+            cd v1
+            for f in *.json; do
+              rsign "$f"
+            done
+
+            missing=0
+            for f in *.json; do
+              if [ ! -s "$f.asc" ]; then
+                echo "ERROR: missing signature for $f" >&2
+                missing=1
+              fi
+            done
+            exit "$missing"
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - v1/*.json.asc
+
+  publish:
+    docker:
+      - image: cimg/aws:2024.03
+    steps:
+      - attach_workspace:
+          at: artifacts
+      - run:
+          name: Stop if no feeds changed
+          command: |
+            if ! ls artifacts/v1/*.json >/dev/null 2>&1; then
+              echo "No feeds changed; nothing to publish."
+              circleci-agent step halt
+            fi
+
+      - run:
+          name: Upload to Cloudflare R2
+          environment:
+            AWS_DEFAULT_REGION: auto
+            # R2's S3-compatible endpoint doesn't support the checksum
+            # headers the AWS CLI sends by default since v2.13; without
+            # this PutObject/sync calls fail against R2.
+            AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+            AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          command: |
+            set -euo pipefail
+            if [ -z "${CLOUDFLARE_R2_ACCESS_KEY_ID:-}" ] || [ -z "${CLOUDFLARE_R2_BUCKET:-}" ] || [ -z "${CLOUDFLARE_R2_ENDPOINT:-}" ]; then
+              echo "WARNING: Cloudflare R2 context variables are not set yet; skipping upload. Feeds were generated and signed but not published."
+              exit 0
+            fi
+            export AWS_ACCESS_KEY_ID="$CLOUDFLARE_R2_ACCESS_KEY_ID"
+            export AWS_SECRET_ACCESS_KEY="$CLOUDFLARE_R2_SECRET_ACCESS_KEY"
+            aws s3 sync artifacts/v1/ "s3://${CLOUDFLARE_R2_BUCKET}/security-advisories/v1/" \
+              --endpoint-url "$CLOUDFLARE_R2_ENDPOINT" \
+              --exclude "*" --include "*.json.asc" \
+              --cache-control "public, max-age=300"
+            aws s3 sync artifacts/v1/ "s3://${CLOUDFLARE_R2_BUCKET}/security-advisories/v1/" \
+              --endpoint-url "$CLOUDFLARE_R2_ENDPOINT" \
+              --exclude "*" --include "*.json" \
+              --content-type application/json \
+              --cache-control "public, max-age=300"
+
+workflows:
+  publish-feeds:
+    # Only scheduled and manually triggered pipelines publish. Pushes are
+    # excluded so a merge can't race the hourly run; a change merged to
+    # main goes out on the next scheduled run, or trigger one by hand.
+    when:
+      and:
+        - equal: [ main, << pipeline.git.branch >> ]
+        - or:
+            - equal: [ scheduled_pipeline, << pipeline.trigger_source >> ]
+            - equal: [ api, << pipeline.trigger_source >> ]
+    jobs:
+      - generate
+      - sign-feeds:
+          context: advisory-feeds-signing
+          requires: [ generate ]
+      - publish:
+          context: advisory-feeds-r2
+          requires: [ sign-feeds ]
