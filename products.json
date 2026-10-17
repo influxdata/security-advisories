@@ -1,0 +1,13 @@
+{
+  "products": [
+    "telegraf",
+    "telegraf-controller",
+    "influxdb3-core",
+    "influxdb3-enterprise",
+    "influxdb3-explorer",
+    "influxdb",
+    "influxdb-enterprise",
+    "chronograf",
+    "kapacitor"
+  ]
+}
