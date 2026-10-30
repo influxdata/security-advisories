@@ -74,12 +74,12 @@ jobs:
             - v1
 
   sign-feeds:
-    circleci_ip_ranges: true
     docker:
       - image: quay.io/influxdb/rsign:latest
         auth:
           username: $QUAY_RSIGN_USERNAME
           password: $QUAY_RSIGN_PASSWORD
+    resource_class: runner-ns/docker
     shell: /bin/sh -eu
     working_directory: /tmp/workspace
     steps:
