@@ -374,12 +374,17 @@ exception for high or critical issues applies.
 
 ## Annotation blocks
 
-An annotation block is a hidden, machine-readable list in the description.
-GitHub does not render HTML comments, the advisory build pipeline removes
-them before it writes the feeds, and the products that read the feeds never
-see them, so a block is invisible to every reader. It is the structured twin
-of what the prose already says, for tooling that needs the same facts in a
-form it can parse.
+An annotation block is a machine-readable list in the description that
+readers of the rendered advisory do not see. GitHub hides HTML comments when
+it renders Markdown, the advisory build pipeline removes them before it
+writes the feeds, and the products that read the feeds never see them. The
+block is still part of the published advisory: the GitHub REST API returns
+the description as written, comments included, to anyone who asks for it.
+Treat a block and its `#` comments as public text. Never put internal ticket
+numbers, customer names, employee names, or anything else listed under
+[Content to leave out](#content-to-leave-out) in one. The block is the
+structured twin of what the prose already says, for tooling that needs the
+same facts in a form it can parse.
 
 ```markdown
 <!-- affected-plugins
@@ -477,8 +482,9 @@ The points below are the ones that matter most in an advisory.
 - Exploit details beyond what a reader needs to judge their exposure. The
   Proof of concept field never carries reproduction steps.
 - Anything about how InfluxData tooling consumes advisories, in the prose.
-  An [annotation block](#annotation-blocks) is the exception, because no
-  reader sees it.
+  An [annotation block](#annotation-blocks) is the exception for this item
+  only. Every other item applies to a block and its `#` comments as well,
+  because the GitHub API returns them to anyone.
 
 ### Formatting
 
