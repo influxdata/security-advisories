@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,20 @@ import (
 func fixtureAPI(t *testing.T, name string) *httptest.Server {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("testdata", "github", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+}
+
+// rawAPI serves raw as the GitHub API would return it, for tests that need
+// an advisory shaped a particular way without a recorded fixture.
+func rawAPI(t *testing.T, raw ...RawAdvisory) *httptest.Server {
+	t.Helper()
+	body, err := json.Marshal(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,9 +123,9 @@ func TestGenerateShrinkGuard(t *testing.T) {
 }
 
 func TestGenerateFailsClosedOnBadAdvisory(t *testing.T) {
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`[{"ghsa_id":"GHSA-xxxx-xxxx-xxxx","state":"published","summary":"x","severity":"low","html_url":"https://e/x","published_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","vulnerabilities":[{"package":{"ecosystem":"","name":"typo"},"vulnerable_version_range":"< 1.0.0"}]}]`))
-	}))
+	a := validAdvisory("GHSA-xxxx-xxxx-xxxx")
+	a.Vulnerabilities[0].Package.Name = "typo"
+	api := rawAPI(t, a)
 	defer api.Close()
 	opts := testOptions(t)
 	_, err := Generate(context.Background(), testClient(api), nil, testRegistry, opts)
@@ -119,6 +134,60 @@ func TestGenerateFailsClosedOnBadAdvisory(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(opts.OutDir); len(entries) != 0 {
 		t.Error("nothing may be written when validation fails")
+	}
+}
+
+func TestGenerateReportsWarningsAndWrites(t *testing.T) {
+	api := fixtureAPI(t, "annotated.json")
+	defer api.Close()
+	opts := testOptions(t)
+	res, err := Generate(context.Background(), testClient(api), nil, testRegistry, opts)
+	if err != nil {
+		t.Fatalf("a stray comment must not fail the run: %v", err)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "GHSA-8pqr-9vwx-c2f3") {
+		t.Errorf("warnings = %v", res.Warnings)
+	}
+	if strings.Join(res.Written, ",") != "telegraf,telegraf-controller" {
+		t.Errorf("written = %v", res.Written)
+	}
+	got, err := os.ReadFile(filepath.Join(opts.OutDir, "v1", "telegraf.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkGolden(t, filepath.Join("annotated", "telegraf.json"), got)
+}
+
+func TestGenerateFailsClosedOnMalformedBlock(t *testing.T) {
+	a := validAdvisory("GHSA-xxxx-xxxx-xxxx")
+	a.Description = "<!-- affected-plugins\nInputs.HTTP\n-->"
+	api := rawAPI(t, a)
+	defer api.Close()
+	opts := testOptions(t)
+	_, err := Generate(context.Background(), testClient(api), nil, testRegistry, opts)
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("want a pattern error, got %v", err)
+	}
+	if entries, _ := os.ReadDir(opts.OutDir); len(entries) != 0 {
+		t.Error("nothing may be written when a block is malformed")
+	}
+}
+
+func TestRunPrintsWarnings(t *testing.T) {
+	api := fixtureAPI(t, "annotated.json")
+	defer api.Close()
+	registry := writeTemp(t, "products.json", testRegistryJSON)
+	var out bytes.Buffer
+	err := run([]string{"generate", "--dry-run", "--api", api.URL, "--repo", "o/r", "--products", registry, "--out", t.TempDir()}, &out)
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out.String())
+	}
+	want := "warning: advisory GHSA-8pqr-9vwx-c2f3: removed unrecognized HTML comment \"<!-- Omit if the release has no toolchain update. -->\"\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("output lacks %q:\n%s", want, out.String())
+	}
+	if strings.Index(out.String(), "warning:") > strings.Index(out.String(), "written") {
+		t.Errorf("warnings must print before the written lines:\n%s", out.String())
 	}
 }
 

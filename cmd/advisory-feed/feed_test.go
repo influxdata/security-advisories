@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -16,7 +17,7 @@ var update = flag.Bool("update", false, "rewrite golden files from the current o
 // testTimestamp is the feedTimestamp every golden file carries.
 const testTimestamp = "2026-09-23T15:00:00Z"
 
-var testRegistry = Registry{Products: []string{"telegraf", "telegraf-controller"}}
+var testRegistry = mustRegistry(testRegistryJSON)
 
 func loadRaw(t *testing.T, name string) []RawAdvisory {
 	t.Helper()
@@ -67,7 +68,7 @@ func checkGoldenFeeds(t *testing.T, dir string, feeds map[string]*Feed) {
 }
 
 func TestBuildFeedsTelegraf140(t *testing.T) {
-	feeds, err := BuildFeeds(loadRaw(t, "telegraf-1.40.0.json"), testRegistry)
+	feeds, _, err := BuildFeeds(loadRaw(t, "telegraf-1.40.0.json"), testRegistry)
 	if err != nil {
 		t.Fatalf("BuildFeeds: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestBuildFeedsTelegraf140(t *testing.T) {
 }
 
 func TestBuildFeedsTwoProducts(t *testing.T) {
-	feeds, err := BuildFeeds(loadRaw(t, "two-products.json"), testRegistry)
+	feeds, _, err := BuildFeeds(loadRaw(t, "two-products.json"), testRegistry)
 	if err != nil {
 		t.Fatalf("BuildFeeds: %v", err)
 	}
@@ -130,6 +131,44 @@ func TestBuildFeedsTwoProducts(t *testing.T) {
 	checkGoldenFeeds(t, "two-products", feeds)
 }
 
+// TestBuildFeedsAnnotated covers the three shapes a real feed will meet:
+// a block after an Updates section, a block on a two-product advisory,
+// and a forgotten template comment.
+func TestBuildFeedsAnnotated(t *testing.T) {
+	feeds, warnings, err := BuildFeeds(loadRaw(t, "annotated.json"), testRegistry)
+	if err != nil {
+		t.Fatalf("BuildFeeds: %v", err)
+	}
+	tg, tc := feeds["telegraf"].Advisories, feeds["telegraf-controller"].Advisories
+	if len(tg) != 2 || len(tc) != 2 {
+		t.Fatalf("telegraf=%d telegraf-controller=%d, want 2 and 2", len(tg), len(tc))
+	}
+	if tg[0].ID != "GHSA-2fgh-3jmp-4qrv" || !reflect.DeepEqual(tg[0].Annotations, map[string][]string{"affected-plugins": {"inputs.http_listener_v2", "inputs.influxdb_listener"}}) {
+		t.Errorf("first telegraf entry = %s %v", tg[0].ID, tg[0].Annotations)
+	}
+	if !strings.HasSuffix(tg[0].Description, "earlier releases.\r\n\r\n") {
+		t.Errorf("block after Updates must be removed, description ends %q", tg[0].Description[len(tg[0].Description)-40:])
+	}
+	if tg[1].ID != "GHSA-5wx2-6cfg-7hjm" || !reflect.DeepEqual(tg[1].Annotations, map[string][]string{"affected-plugins": {"inputs.http"}}) {
+		t.Errorf("second telegraf entry = %s %v", tg[1].ID, tg[1].Annotations)
+	}
+	if tc[0].ID != "GHSA-8pqr-9vwx-c2f3" || len(tc[0].Annotations) != 0 || !strings.Contains(tc[0].Description, "### Details\n\n#### Go toolchain\r\n") {
+		t.Errorf("stray comment entry = %s %v %q", tc[0].ID, tc[0].Annotations, tc[0].Description)
+	}
+	if tc[1].ID != "GHSA-5wx2-6cfg-7hjm" || len(tc[1].Annotations) != 0 {
+		t.Errorf("telegraf-controller copy must not carry the telegraf key, got %v", tc[1].Annotations)
+	}
+	for _, e := range slices.Concat(tg, tc) {
+		if strings.Contains(e.Description, "<!--") {
+			t.Errorf("%s: comment leaked into the feed", e.ID)
+		}
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "GHSA-8pqr-9vwx-c2f3") || !strings.Contains(warnings[0], "Omit if the release") {
+		t.Errorf("warnings = %v", warnings)
+	}
+	checkGoldenFeeds(t, "annotated", feeds)
+}
+
 func TestMarshalShape(t *testing.T) {
 	got, err := Marshal(&Feed{FeedVersion: feedVersion, Product: "telegraf", FeedTimestamp: testTimestamp, Notice: feedNotice, Advisories: []Entry{}})
 	if err != nil {
@@ -147,7 +186,7 @@ func TestMarshalShape(t *testing.T) {
 // one, carries the notice and that the notice points readers at the stable
 // sources: the advisories page and the GitHub REST API.
 func TestBuildFeedsCarriesNotice(t *testing.T) {
-	feeds, err := BuildFeeds(loadRaw(t, "telegraf-1.40.0.json"), testRegistry)
+	feeds, _, err := BuildFeeds(loadRaw(t, "telegraf-1.40.0.json"), testRegistry)
 	if err != nil {
 		t.Fatalf("BuildFeeds: %v", err)
 	}
@@ -170,7 +209,7 @@ func TestBuildFeedsCarriesNotice(t *testing.T) {
 }
 
 func TestMarshalDoesNotEscapeHTML(t *testing.T) {
-	f := &Feed{FeedVersion: feedVersion, Product: "p", Advisories: []Entry{{ID: "GHSA-cccc-cccc-cccc", Description: "a <b> & c", Affected: []Range{}, CWEs: []CWE{}}}}
+	f := &Feed{FeedVersion: feedVersion, Product: "p", Advisories: []Entry{{ID: "GHSA-cccc-cccc-cccc", Description: "a <b> & c", Affected: []Range{}, CWEs: []CWE{}, Annotations: map[string][]string{}}}}
 	got, err := Marshal(f)
 	if err != nil {
 		t.Fatal(err)
@@ -221,12 +260,19 @@ func TestBuildFeedsRejects(t *testing.T) {
 		{"missing url", func(a *RawAdvisory) { a.HTMLURL = "" }, "missing html_url"},
 		{"missing published_at", func(a *RawAdvisory) { a.PublishedAt = "" }, "published_at"},
 		{"missing updated_at", func(a *RawAdvisory) { a.UpdatedAt = "" }, "updated_at"},
+		{"malformed block", func(a *RawAdvisory) { a.Description = "<!-- affected-plugins\nInputs.HTTP\n-->" }, "does not match"},
+		{"empty block", func(a *RawAdvisory) { a.Description = "<!-- affected-plugins\n-->" }, "no entries"},
+		{"unterminated comment", func(a *RawAdvisory) { a.Description = "x <!-- affected-plugins\ninputs.http" }, "unterminated"},
+		{"block for other product", func(a *RawAdvisory) {
+			a.Description = "<!-- affected-plugins\ninputs.http\n-->"
+			a.Vulnerabilities[0].Package.Name = "telegraf-controller"
+		}, "not registered for any product"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := base()
 			tc.mutate(&a)
-			_, err := BuildFeeds([]RawAdvisory{a}, testRegistry)
+			_, _, err := BuildFeeds([]RawAdvisory{a}, testRegistry)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("want error containing %q, got %v", tc.wantErr, err)
 			}
@@ -237,9 +283,64 @@ func TestBuildFeedsRejects(t *testing.T) {
 	}
 }
 
+// TestBuildFeedsAnnotationsAlwaysPresent: an advisory with no block carries
+// an empty object, never null, so consumers can index it without a check.
+func TestBuildFeedsAnnotationsAlwaysPresent(t *testing.T) {
+	feeds, warnings, err := BuildFeeds([]RawAdvisory{validAdvisory("GHSA-cccc-cccc-cccc")}, testRegistry)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("BuildFeeds: %v, warnings %v", err, warnings)
+	}
+	e := feeds["telegraf"].Advisories[0]
+	if e.Annotations == nil || len(e.Annotations) != 0 {
+		t.Errorf("annotations = %#v, want an empty map", e.Annotations)
+	}
+	data, err := Marshal(feeds["telegraf"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("\"cwes\": [],\n      \"annotations\": {}\n")) {
+		t.Errorf("annotations must follow cwes and serialize as {}:\n%s", data)
+	}
+}
+
+func TestBuildFeedsRoutesBlockToRegisteredProduct(t *testing.T) {
+	a := validAdvisory("GHSA-cccc-cccc-cccc")
+	a.Description = "Both.\r\n\r\n<!-- affected-plugins\r\ninputs.http\r\n-->\r\n"
+	a.Vulnerabilities = append(a.Vulnerabilities, RawVulnerability{Package: RawPackage{Name: "telegraf-controller"}, VulnerableVersionRange: "< 1.0.0"})
+	feeds, warnings, err := BuildFeeds([]RawAdvisory{a}, testRegistry)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("BuildFeeds: %v, warnings %v", err, warnings)
+	}
+	tg, tc := feeds["telegraf"].Advisories[0], feeds["telegraf-controller"].Advisories[0]
+	if !reflect.DeepEqual(tg.Annotations, map[string][]string{"affected-plugins": {"inputs.http"}}) {
+		t.Errorf("telegraf annotations = %v", tg.Annotations)
+	}
+	if len(tc.Annotations) != 0 {
+		t.Errorf("telegraf-controller must not carry a telegraf-only key, got %v", tc.Annotations)
+	}
+	if tg.Description != "Both.\r\n\r\n" || tc.Description != tg.Description {
+		t.Errorf("both copies must carry the stripped description, got %q and %q", tg.Description, tc.Description)
+	}
+}
+
+func TestBuildFeedsWarnsAndStripsUnrecognizedComment(t *testing.T) {
+	a := validAdvisory("GHSA-cccc-cccc-cccc")
+	a.Description = "A.\r\n\r\n<!-- Omit if the release has no toolchain update. -->\r\n#### Go toolchain\r\n"
+	feeds, warnings, err := BuildFeeds([]RawAdvisory{a}, testRegistry)
+	if err != nil {
+		t.Fatalf("a stray comment must not fail the build: %v", err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "GHSA-cccc-cccc-cccc") || !strings.Contains(warnings[0], "unrecognized HTML comment") {
+		t.Errorf("warnings = %v", warnings)
+	}
+	if got := feeds["telegraf"].Advisories[0].Description; got != "A.\r\n\r\n#### Go toolchain\r\n" {
+		t.Errorf("description = %q", got)
+	}
+}
+
 func TestBuildFeedsSkipsDrafts(t *testing.T) {
 	draft := RawAdvisory{GHSAID: "GHSA-2222-3333-4444", State: "draft"}
-	feeds, err := BuildFeeds([]RawAdvisory{draft}, testRegistry)
+	feeds, _, err := BuildFeeds([]RawAdvisory{draft}, testRegistry)
 	if err != nil {
 		t.Fatalf("a draft must be skipped, not validated: %v", err)
 	}
@@ -258,7 +359,7 @@ func TestBuildFeedsKeepsEveryRowForAProduct(t *testing.T) {
 		{Package: RawPackage{Name: "telegraf"}, VulnerableVersionRange: ">= 1.30.0, < 1.38.1", PatchedVersions: "1.38.1"},
 		{Package: RawPackage{Name: "telegraf"}, VulnerableVersionRange: ">= 1.39.0, < 1.39.2", PatchedVersions: "1.39.2"},
 	}
-	feeds, err := BuildFeeds([]RawAdvisory{a}, testRegistry)
+	feeds, _, err := BuildFeeds([]RawAdvisory{a}, testRegistry)
 	if err != nil {
 		t.Fatalf("BuildFeeds: %v", err)
 	}
@@ -294,7 +395,7 @@ func TestBuildFeedsSortsNewestFirstThenByID(t *testing.T) {
 		a.PublishedAt = published
 		return a
 	}
-	feeds, err := BuildFeeds([]RawAdvisory{
+	feeds, _, err := BuildFeeds([]RawAdvisory{
 		mk("GHSA-pppp-pppp-pppp", "2026-01-01T00:00:00Z"),
 		mk("GHSA-xxxx-xxxx-xxxx", "2026-02-01T00:00:00Z"),
 		mk("GHSA-cccc-cccc-cccc", "2026-01-01T00:00:00Z"),
@@ -317,11 +418,11 @@ func TestBuildFeedsCapsAdvisoriesPerProduct(t *testing.T) {
 	for i := 0; i < maxAdvisories; i++ {
 		raw = append(raw, validAdvisory(ghsaID(i)))
 	}
-	if _, err := BuildFeeds(raw, testRegistry); err != nil {
+	if _, _, err := BuildFeeds(raw, testRegistry); err != nil {
 		t.Fatalf("exactly the limit must pass: %v", err)
 	}
 	raw = append(raw, validAdvisory(ghsaID(maxAdvisories)))
-	_, err := BuildFeeds(raw, testRegistry)
+	_, _, err := BuildFeeds(raw, testRegistry)
 	if err == nil || !strings.Contains(err.Error(), "more than the limit") {
 		t.Fatalf("want a limit error for one advisory over, got %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -37,20 +38,22 @@ type Feed struct {
 }
 
 // Entry is one advisory as it appears in a product's feed. Every field is
-// always present; absent values are null or an empty array.
+// always present; absent values are null, an empty array, or an empty
+// object.
 type Entry struct {
-	ID          string  `json:"id"`
-	CVE         *string `json:"cve"`
-	URL         string  `json:"url"`
-	Summary     string  `json:"summary"`
-	Description string  `json:"description"`
-	Severity    string  `json:"severity"`
-	CVSS        *CVSS   `json:"cvss"`
-	Published   string  `json:"published"`
-	Updated     string  `json:"updated"`
-	Withdrawn   *string `json:"withdrawn"`
-	Affected    []Range `json:"affected"`
-	CWEs        []CWE   `json:"cwes"`
+	ID          string              `json:"id"`
+	CVE         *string             `json:"cve"`
+	URL         string              `json:"url"`
+	Summary     string              `json:"summary"`
+	Description string              `json:"description"`
+	Severity    string              `json:"severity"`
+	CVSS        *CVSS               `json:"cvss"`
+	Published   string              `json:"published"`
+	Updated     string              `json:"updated"`
+	Withdrawn   *string             `json:"withdrawn"`
+	Affected    []Range             `json:"affected"`
+	CWEs        []CWE               `json:"cwes"`
+	Annotations map[string][]string `json:"annotations"` // annotation block entries by key, for this product only
 }
 
 // CVSS is a CVSS 3.x vector and GitHub's computed base score.
@@ -74,23 +77,27 @@ func feedPath(product string) string {
 // BuildFeeds validates every published or withdrawn advisory, flattens it
 // into an Entry, and groups entries by product. Every registered product
 // gets a feed, empty if nothing names it. Any validation problem fails the
-// whole build so that nothing is published from a bad run.
-func BuildFeeds(raw []RawAdvisory, reg Registry) (map[string]*Feed, error) {
+// whole build so that nothing is published from a bad run. Warnings, one
+// per unrecognized HTML comment that was stripped, are returned for the
+// caller to report; they never fail the build.
+func BuildFeeds(raw []RawAdvisory, reg Registry) (map[string]*Feed, []string, error) {
 	feeds := make(map[string]*Feed, len(reg.Products))
 	for _, p := range reg.Products {
 		feeds[p] = &Feed{FeedVersion: feedVersion, Product: p, Notice: feedNotice, Advisories: []Entry{}}
 	}
+	var warnings []string
 	for _, a := range raw {
 		if a.State != "published" && a.State != "withdrawn" {
 			continue
 		}
-		entry, ranges, err := convert(a, feeds)
+		entries, ws, err := convert(a, reg)
 		if err != nil {
-			return nil, fmt.Errorf("advisory %s: %w", a.GHSAID, err)
+			return nil, nil, fmt.Errorf("advisory %s: %w", a.GHSAID, err)
 		}
-		for product, rs := range ranges {
-			e := entry
-			e.Affected = rs
+		for _, w := range ws {
+			warnings = append(warnings, fmt.Sprintf("advisory %s: %s", a.GHSAID, w))
+		}
+		for product, e := range entries {
 			feeds[product].Advisories = append(feeds[product].Advisories, e)
 		}
 	}
@@ -102,48 +109,54 @@ func BuildFeeds(raw []RawAdvisory, reg Registry) (map[string]*Feed, error) {
 			return strings.Compare(a.ID, b.ID)
 		})
 		if len(f.Advisories) > maxAdvisories {
-			return nil, fmt.Errorf("product %s has %d advisories, more than the limit of %d", f.Product, len(f.Advisories), maxAdvisories)
+			return nil, nil, fmt.Errorf("product %s has %d advisories, more than the limit of %d", f.Product, len(f.Advisories), maxAdvisories)
 		}
 	}
-	return feeds, nil
+	return feeds, warnings, nil
 }
 
-// convert validates one advisory and flattens it into an Entry without its
-// Affected ranges, which it returns separately keyed by product. feeds
-// supplies the set of known products.
-func convert(a RawAdvisory, feeds map[string]*Feed) (Entry, map[string][]Range, error) {
+// convert validates one advisory, extracts and strips its annotation
+// blocks, and flattens it into one Entry per product it names, each
+// carrying that product's ranges and annotations. Warnings, one per
+// unrecognized HTML comment, come back without the advisory id; the caller
+// adds it, as it does for errors.
+func convert(a RawAdvisory, reg Registry) (map[string]Entry, []string, error) {
 	switch {
 	case a.GHSAID == "":
-		return Entry{}, nil, fmt.Errorf("missing ghsa_id")
+		return nil, nil, fmt.Errorf("missing ghsa_id")
 	case len(a.GHSAID) > maxIDLength:
-		return Entry{}, nil, fmt.Errorf("ghsa_id longer than %d characters", maxIDLength)
+		return nil, nil, fmt.Errorf("ghsa_id longer than %d characters", maxIDLength)
 	case a.Summary == "":
-		return Entry{}, nil, fmt.Errorf("empty summary")
+		return nil, nil, fmt.Errorf("empty summary")
 	case utf8.RuneCountInString(a.Summary) > maxSummaryLength:
-		return Entry{}, nil, fmt.Errorf("summary longer than %d characters", maxSummaryLength)
+		return nil, nil, fmt.Errorf("summary longer than %d characters", maxSummaryLength)
 	case !slices.Contains(severityLevels, a.Severity):
-		return Entry{}, nil, fmt.Errorf("severity %q is not one of %s", a.Severity, strings.Join(severityLevels, ", "))
+		return nil, nil, fmt.Errorf("severity %q is not one of %s", a.Severity, strings.Join(severityLevels, ", "))
 	case a.HTMLURL == "":
-		return Entry{}, nil, fmt.Errorf("missing html_url")
+		return nil, nil, fmt.Errorf("missing html_url")
 	case a.PublishedAt == "" || a.UpdatedAt == "":
-		return Entry{}, nil, fmt.Errorf("missing published_at or updated_at")
+		return nil, nil, fmt.Errorf("missing published_at or updated_at")
 	case len(a.Vulnerabilities) == 0:
-		return Entry{}, nil, fmt.Errorf("no affected products, cannot assign to a product")
+		return nil, nil, fmt.Errorf("no affected products, cannot assign to a product")
 	}
 	ranges := make(map[string][]Range)
 	for i, v := range a.Vulnerabilities {
-		r, err := convertRow(v, feeds)
+		r, err := convertRow(v, reg)
 		if err != nil {
-			return Entry{}, nil, fmt.Errorf("affected product %d: %w", i+1, err)
+			return nil, nil, fmt.Errorf("affected product %d: %w", i+1, err)
 		}
 		ranges[v.Package.Name] = append(ranges[v.Package.Name], r)
 	}
-	e := Entry{
+	ex, err := extractAnnotations(a.Description, slices.Sorted(maps.Keys(ranges)), reg)
+	if err != nil {
+		return nil, nil, err
+	}
+	base := Entry{
 		ID:          a.GHSAID,
 		CVE:         a.CVEID,
 		URL:         a.HTMLURL,
 		Summary:     a.Summary,
-		Description: a.Description,
+		Description: ex.Description,
 		Severity:    a.Severity,
 		Published:   a.PublishedAt,
 		Updated:     a.UpdatedAt,
@@ -151,17 +164,24 @@ func convert(a RawAdvisory, feeds map[string]*Feed) (Entry, map[string][]Range, 
 		CWEs:        []CWE{},
 	}
 	if v3 := a.CVSSSeverities.CVSSV3; v3 != nil && v3.VectorString != "" {
-		e.CVSS = &CVSS{Vector: v3.VectorString, Score: v3.Score}
+		base.CVSS = &CVSS{Vector: v3.VectorString, Score: v3.Score}
 	}
 	for _, c := range a.CWEs {
-		e.CWEs = append(e.CWEs, CWE{ID: c.CWEID, Name: c.Name})
+		base.CWEs = append(base.CWEs, CWE{ID: c.CWEID, Name: c.Name})
 	}
-	return e, ranges, nil
+	entries := make(map[string]Entry, len(ranges))
+	for product, rs := range ranges {
+		e := base
+		e.Affected = rs
+		e.Annotations = reg.annotationsFor(product, ex.Blocks)
+		entries[product] = e
+	}
+	return entries, ex.Warnings, nil
 }
 
 // convertRow validates one "Affected products" row and parses its range.
-func convertRow(v RawVulnerability, feeds map[string]*Feed) (Range, error) {
-	if _, ok := feeds[v.Package.Name]; !ok {
+func convertRow(v RawVulnerability, reg Registry) (Range, error) {
+	if !slices.Contains(reg.Products, v.Package.Name) {
 		return Range{}, fmt.Errorf("names unknown package %q", v.Package.Name)
 	}
 	if v.Package.Ecosystem != "" && v.Package.Ecosystem != "other" {

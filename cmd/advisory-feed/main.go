@@ -63,6 +63,9 @@ func run(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(stdout, "warning: %s\n", w)
+	}
 	for _, p := range res.Written {
 		fmt.Fprintf(stdout, "written   %s\n", p)
 	}

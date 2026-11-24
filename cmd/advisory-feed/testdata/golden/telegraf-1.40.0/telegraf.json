@@ -37,7 +37,8 @@
           "id": "CWE-248",
           "name": "Uncaught Exception"
         }
-      ]
+      ],
+      "annotations": {}
     }
   ]
 }
