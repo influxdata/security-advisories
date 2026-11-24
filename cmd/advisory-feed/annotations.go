@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"regexp"
@@ -8,11 +9,10 @@ import (
 	"strings"
 )
 
-// commentPattern matches one HTML comment, capturing its interior, together
-// with the spaces and the single line ending that follow it, so that
-// removing a comment on a line of its own removes the whole line. Nothing
-// before the comment is touched.
-var commentPattern = regexp.MustCompile(`(?s)<!--(.*?)-->[ \t]*(?:\r\n|\n|\r)?`)
+// commentPattern matches one HTML comment and captures its interior. How
+// much text goes with the comment is decided per match in
+// extractAnnotations, because it depends on what shares the line.
+var commentPattern = regexp.MustCompile(`(?s)<!--(.*?)-->`)
 
 // extraction is what extractAnnotations found in one description.
 type extraction struct {
@@ -29,13 +29,27 @@ type extraction struct {
 // where it ends.
 func extractAnnotations(description string, products []string, reg Registry) (extraction, error) {
 	out := extraction{Blocks: make(map[string][]string)}
-	var stripped strings.Builder
+	var stripped []byte
 	last := 0
 	for _, m := range commentPattern.FindAllStringSubmatchIndex(description, -1) {
-		stripped.WriteString(description[last:m[0]])
-		last = m[1]
-		inner := description[m[2]:m[3]]
-		comment := description[m[0] : m[3]+len("-->")]
+		stripped = append(stripped, description[last:m[0]]...)
+		comment, inner := description[m[0]:m[1]], description[m[2]:m[3]]
+
+		// A comment alone on its line, with only spaces or tabs around it,
+		// takes the whole line with it, so that no blank line is left
+		// behind. A comment that shares its line with text takes only
+		// itself, so that the text keeps its spacing and its line ending.
+		lineStart := bytes.LastIndexAny(stripped, "\r\n") + 1
+		after := m[1]
+		for after < len(description) && (description[after] == ' ' || description[after] == '\t') {
+			after++
+		}
+		if isBlank(stripped[lineStart:]) && (after == len(description) || lineEndingLen(description[after:]) > 0) {
+			stripped = stripped[:lineStart]
+			last = after + lineEndingLen(description[after:])
+		} else {
+			last = m[1]
+		}
 
 		// Split on CR, LF, or CRLF alike: empty pieces are dropped below, so
 		// a CRLF pair needs no special case.
@@ -75,12 +89,29 @@ func extractAnnotations(description string, products []string, reg Registry) (ex
 		}
 		out.Blocks[key] = entries
 	}
-	stripped.WriteString(description[last:])
-	out.Description = stripped.String()
+	stripped = append(stripped, description[last:]...)
+	out.Description = string(stripped)
 	if strings.Contains(out.Description, "<!--") {
 		return extraction{}, errors.New("unterminated HTML comment")
 	}
 	return out, nil
+}
+
+// isBlank reports whether b holds only spaces and tabs.
+func isBlank(b []byte) bool {
+	return len(bytes.TrimLeft(b, " \t")) == 0
+}
+
+// lineEndingLen is the length of the line ending at the start of s: 2 for
+// CRLF, 1 for LF or a bare CR, 0 when s starts with anything else.
+func lineEndingLen(s string) int {
+	switch {
+	case strings.HasPrefix(s, "\r\n"):
+		return 2
+	case strings.HasPrefix(s, "\n"), strings.HasPrefix(s, "\r"):
+		return 1
+	}
+	return 0
 }
 
 // unrecognized is the warning for a comment that is not an annotation
