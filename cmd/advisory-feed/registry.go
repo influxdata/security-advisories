@@ -83,6 +83,13 @@ func ParseRegistry(data []byte) (Registry, error) {
 		if b.Entry == "" {
 			return Registry{}, fmt.Errorf("block %q has no entry pattern", key)
 		}
+		// Compile the pattern on its own before wrapping it. A pattern with
+		// unbalanced parentheses, such as a)|(b, fails here but would compile
+		// once wrapped, as ^(?:a)|(b)$, and the anchors would then bind to
+		// only one branch of the alternation.
+		if _, err := regexp.Compile(b.Entry); err != nil {
+			return Registry{}, fmt.Errorf("block %q entry pattern: %w", key, err)
+		}
 		pattern, err := regexp.Compile("^(?:" + b.Entry + ")$")
 		if err != nil {
 			return Registry{}, fmt.Errorf("block %q entry pattern: %w", key, err)

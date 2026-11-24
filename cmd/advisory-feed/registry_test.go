@@ -59,6 +59,7 @@ func TestParseRegistryRejectsBadInput(t *testing.T) {
 		{"block duplicate product", `{"products": ["telegraf"], "blocks": {"k": {"products": ["telegraf", "telegraf"], "entry": "^a$"}}}`, "twice"},
 		{"block empty pattern", `{"products": ["telegraf"], "blocks": {"k": {"products": ["telegraf"], "entry": ""}}}`, "no entry pattern"},
 		{"block bad pattern", `{"products": ["telegraf"], "blocks": {"k": {"products": ["telegraf"], "entry": "("}}}`, "entry pattern"},
+		{"block pattern that compiles only once wrapped", `{"products": ["telegraf"], "blocks": {"k": {"products": ["telegraf"], "entry": "a)|(b"}}}`, "entry pattern"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
