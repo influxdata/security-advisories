@@ -109,6 +109,8 @@ func TestExtractAnnotationsWarns(t *testing.T) {
 		{"comment after prose keeps the next heading", "Agents are not affected. <!-- reviewer note -->\r\n#### Patches\r\n", "Agents are not affected. \r\n#### Patches\r\n", []string{"reviewer note"}},
 		{"comment inside a list item keeps the next item", "- inputs.http <!-- note -->\n- inputs.file\n", "- inputs.http \n- inputs.file\n", []string{"note"}},
 		{"comment between words keeps the separator", "Fixed.<!-- x --> Next.", "Fixed. Next.", []string{"x"}},
+		{"own line with trailing spaces at end of input goes whole", "A.\n<!-- x -->  ", "A.\n", []string{"x"}},
+		{"own line with tabs around it goes whole", "A.\n\t<!-- x -->\t\nB.\n", "A.\nB.\n", []string{"x"}},
 		{"two template comments", "<!-- one -->\r\n<!-- two -->\r\ntext", "text", []string{"one", "two"}},
 		{"long comment truncated", "<!-- " + strings.Repeat("a", 80) + " -->", "", []string{"..."}},
 	}
