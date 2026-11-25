@@ -21,7 +21,8 @@
           "fixed": "1.38.1"
         }
       ],
-      "cwes": []
+      "cwes": [],
+      "annotations": {}
     },
     {
       "id": "GHSA-hhhh-jjjj-mmmm",
@@ -40,7 +41,8 @@
           "fixed": "1.36.0"
         }
       ],
-      "cwes": []
+      "cwes": [],
+      "annotations": {}
     }
   ]
 }

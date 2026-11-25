@@ -207,25 +207,23 @@ tell from this field whether the advisory applies to them.
 
 One `####` section per issue in InfluxData's own code, then a Go toolchain
 section, then a Dependencies section, then Patches, Workarounds, and
-References once for the whole advisory. The comments in the template mark
-which sections are optional. Delete them as you fill in the form.
+References once for the whole advisory. The issue, Go toolchain, and
+Dependencies sections appear only when the release has content for them;
+Patches, Workarounds, and References are always present.
 
 ```markdown
-<!-- One section per issue in InfluxData's own code. Omit if there are none. -->
 #### <Issue title> (CVE-YYYY-NNNNN)
 
 CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N (6.2, Medium)
 
 <What the issue is, which component it affects, who is affected, and the conditions under which it can be exploited. One or two paragraphs.>
 
-<!-- Omit if the release has no toolchain update. -->
 #### Go toolchain
 
 Updated to Go <version> to fix the following CVEs in the Go standard library, which were confirmed to affect <Product>.
 
 - [CVE-YYYY-NNNNN](https://pkg.go.dev/vuln/GO-YYYY-NNNN): <title line from the Go release announcement, verbatim>.
 
-<!-- Omit if the release has no urgent dependency fixes. -->
 #### Dependencies
 
 Updated <module> to <version> to fix <CVE> (<upstream score and rating>), which was confirmed to affect <Product>.
@@ -241,7 +239,6 @@ Fixed in <Product> <version>.
 #### References
 
 - [<Product> <version> release notes](<url>)
-<!-- Add pull requests or commits only when the release notes do not identify the fix. -->
 - [<Fixing pull request or commit>](<url>)
 ```
 
@@ -325,6 +322,9 @@ For toolchain CVEs:
 <Which deployments are not affected.>
 ```
 
+When the advisory carries an [annotation block](#annotation-blocks), it goes
+at the end of this field, after the last paragraph.
+
 ## Toolchain CVEs
 
 Security's triage of a Go security release lists, for each CVE, whether it
@@ -372,6 +372,89 @@ with placeholders for the Go version, the release-notes anchor, and the
 pull request number. Keep the draft unpublished unless the README's
 exception for high or critical issues applies.
 
+## Annotation blocks
+
+An annotation block is a machine-readable list in the description that
+readers of the rendered advisory do not see. GitHub hides HTML comments when
+it renders Markdown, the advisory build pipeline removes them before it
+writes the feeds, and the products that read the feeds never see them. The
+block is still part of the published advisory: the GitHub REST API returns
+the description as written, comments included, to anyone who asks for it.
+Treat a block and its `#` comments as public text. Never put internal ticket
+numbers, customer names, employee names, or anything else listed under
+[Content to leave out](#content-to-leave-out) in one. The block is the
+structured twin of what the prose already says, for tooling that needs the
+same facts in a form it can parse.
+
+```markdown
+<!-- affected-plugins
+inputs.http   # CVE-2026-12345, credential exposure in debug logs
+-->
+```
+
+The grammar is the same for every key:
+
+- The comment opens with `<!--` followed by the key on the same line and
+  closes with `-->` on a line of its own.
+- One entry per line. A `#` starts a comment that runs to the end of the
+  line. Blank lines are ignored.
+- Every entry must match the shape in the [key table](#keys). The pipeline
+  checks only the shape; the meaning belongs to the product that reads the
+  feed.
+- One block per key per advisory.
+- A block is written only when it applies. The key table says what leaving
+  it out means.
+- A block must agree with the prose in Summary, Details, and Impact.
+  Changing either after publication follows
+  [Update a published advisory](#update-a-published-advisory).
+
+Put the block at the end of the description. When you create the draft,
+that is the end of the Impact field. When you edit a published advisory, it
+is after the last section, which is Updates when one exists. The pipeline
+finds a block anywhere in the description, so the position only helps
+reviewers find it.
+
+The pipeline removes any other HTML comment from the feed copy and logs a
+warning, so a forgotten template comment never reaches the products that
+read the feeds. A block whose key is in the key table but whose content is
+wrong, for example an entry in the wrong shape, an empty block, or a second
+block for the same key, stops the pipeline until the advisory is corrected,
+and no feed is published in the meantime. Do not put HTML comments inside
+code blocks; the pipeline does not read Markdown and treats them as
+comments.
+
+### Keys
+
+| Key                | Products   | Entry                                                                                                                                                                                              | Meaning                                                                                                                      |
+| :----------------- | :--------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
+| `affected-plugins` | `telegraf` | A plugin as written in its configuration section header: `inputs.*`, `outputs.*`, `processors.*`, `aggregators.*`, or `secretstores.*`, with a name of lowercase letters, digits, and underscores. | Only agents that run one of the listed plugins are affected. Without a block, every agent in the affected range is affected. |
+
+### Telegraf: when to list affected plugins
+
+Add an `affected-plugins` block only when every issue in the advisory is
+tied to plugin sections. If any issue reaches agents regardless of their
+configuration, for example a command-line flag, every outbound TLS
+connection, or a parser or serializer that several plugins use, omit the
+block. The advisory then applies to every agent in the affected range,
+which is the safe reading.
+
+- Conditions inside a plugin, such as an option or an operating system,
+  cannot be expressed. List the plugin and accept that some agents are
+  reported as affected when they are not.
+- When the prose names a class of plugins, such as "TLS listener inputs",
+  the block lists each one, and the prose is tightened in the same edit to
+  name the same plugins, so that the two agree.
+- Only the shape of a plugin name is checked. Verify the spelling against
+  the [Telegraf plugin list](https://docs.influxdata.com/telegraf/v1/plugins/).
+
+### Register a key
+
+A key exists for a product when something reads it. To add one, add it to
+the `blocks` map in `products.json` with the products that may use it and
+the pattern every entry must match, add a row to the key table above, and
+document the meaning for the product that reads the feed. The pipeline
+needs no change.
+
 ## Style
 
 Advisories use the same voice as InfluxData product documentation, which
@@ -398,7 +481,10 @@ The points below are the ones that matter most in an advisory.
 - Internal ticket numbers, customer names, and employee names.
 - Exploit details beyond what a reader needs to judge their exposure. The
   Proof of concept field never carries reproduction steps.
-- Anything about how InfluxData tooling consumes advisories.
+- Anything about how InfluxData tooling consumes advisories, in the prose.
+  An [annotation block](#annotation-blocks) is the exception for this item
+  only. Every other item applies to a block and its `#` comments as well,
+  because the GitHub API returns them to anyone.
 
 ### Formatting
 
@@ -440,6 +526,11 @@ Reviewers confirm each of the following before the advisory is published:
       the release.
 - [ ] The package name matches the [product table](#product-package-names)
       exactly.
+- [ ] For Telegraf, either an `affected-plugins` block lists every plugin the
+      prose names and no others, with the key spelled as in the
+      [key table](#keys), or exposure is agent-wide and there is no block.
+- [ ] No HTML comment other than an annotation block remains in the
+      description.
 - [ ] The advisory severity is the highest CVSS score among issues in
       InfluxData's own code, or Security's rating when there are none.
 - [ ] Each workaround is correct and complete, or stated as none.
@@ -475,6 +566,8 @@ exposure:
   [Toolchain CVEs](#toolchain-cves). Add or extend the Go toolchain section
   under Details, add the Go update pull request to References, and widen
   the affected range if the toolchain CVEs affect releases outside it.
+- An annotation block is added or corrected. See
+  [Annotation blocks](#annotation-blocks).
 
 Do not update advisories for wording changes or additional context.
 
@@ -491,6 +584,9 @@ When you do update one:
 
 - <YYYY-MM-DD>: <What changed and why.>
 ```
+
+An edit that changes only an annotation block gets no Updates entry, because
+nothing a reader can see changes. The edit is still reviewed.
 
 To withdraw a published advisory, contact Security. Withdrawing requires
 GitHub support and is reserved for advisories that were published in error.
@@ -520,7 +616,7 @@ GitHub support and is reserved for advisories that were published in error.
 **Summary:**
 
 ```markdown
-Telegraf 1.39.2 fixes a credential exposure in the debug logs of the `inputs.http` plugin and two CVEs in the Go standard library that affect TLS connections. The credential exposure affects agents that run `inputs.http` with `debug = true`. The toolchain CVEs affect every agent that makes TLS connections.
+Telegraf 1.39.2 fixes a credential exposure in the debug logs of the `inputs.http` plugin and two CVEs in the Go standard library that affect plugins that serve HTTP over TLS. The credential exposure affects agents that run `inputs.http` with `debug = true`. The toolchain CVEs affect agents that run `inputs.http_listener_v2`, `inputs.influxdb_listener`, `inputs.influxdb_v2_listener`, or `outputs.prometheus_client` with `tls_cert` and `tls_key` set.
 ```
 
 **Details:**
@@ -536,8 +632,8 @@ When debug logging is enabled, the `inputs.http` plugin logs full request header
 
 Updated to Go 1.26.5 to fix the following CVEs in the Go standard library, which were confirmed to affect Telegraf.
 
-- [CVE-2026-00001](https://pkg.go.dev/vuln/GO-2026-0001): crypto/tls: excessive CPU consumption during client certificate verification.
-- [CVE-2026-00002](https://pkg.go.dev/vuln/GO-2026-0002): crypto/x509: unbounded memory growth when parsing certificate chains.
+- [CVE-2026-00001](https://pkg.go.dev/vuln/GO-2026-0001): net/http: HTTP/2 server memory exhaustion from unbounded CONTINUATION frames.
+- [CVE-2026-00002](https://pkg.go.dev/vuln/GO-2026-0002): net/http: HTTP/2 server excessive CPU consumption from repeated SETTINGS frames.
 
 #### Patches
 
@@ -545,7 +641,7 @@ Fixed in Telegraf 1.39.2.
 
 #### Workarounds
 
-For the credential exposure, disable debug logging and rotate any credentials that may have been logged. For the toolchain CVEs, connect only to servers you trust; there is no configuration workaround.
+For the credential exposure, disable debug logging and rotate any credentials that may have been logged. For the toolchain CVEs, set `tls_allowed_cacerts` on the listener plugins to require a client certificate, and restrict network access to listener ports.
 
 #### References
 
@@ -564,7 +660,21 @@ InfluxData does not publish reproduction steps for these issues. The configurati
 
 ```markdown
 - Credential exposure: anyone with read access to the logs of an agent that runs `inputs.http` with `debug = true` can recover the credentials the plugin sends.
-- Denial of service against TLS connections: CVE-2026-00001 and CVE-2026-00002 let a server that an agent connects to consume the agent's CPU or memory during the TLS handshake. Agents are affected when any plugin connects over TLS to a server that is not trusted.
+- Denial of service against HTTP listener plugins: CVE-2026-00001 and CVE-2026-00002 let any client that can reach the listener exhaust the agent's memory or CPU. Agents are affected when `inputs.http_listener_v2`, `inputs.influxdb_listener`, `inputs.influxdb_v2_listener`, or `outputs.prometheus_client` has `tls_cert` and `tls_key` set. No credentials are required.
 
-Agents that do not run `inputs.http` with `debug = true` and do not make TLS connections are not affected.
+Agents that do not run `inputs.http` with `debug = true` and do not run one of these listener plugins with TLS are not affected.
+
+<!-- affected-plugins
+inputs.http                  # CVE-2026-12345, credential exposure in debug logs
+inputs.http_listener_v2      # CVE-2026-00001 and CVE-2026-00002, HTTP/2 server
+inputs.influxdb_listener
+inputs.influxdb_v2_listener
+outputs.prometheus_client
+-->
 ```
+
+The block lists the plugin from the credential issue and the four listener
+plugins that Summary and Impact name, and nothing else. Every issue in this
+advisory is tied to a plugin section, so the block applies. Had one of the
+toolchain CVEs reached every agent, for example through every outbound TLS
+connection, the advisory would have no block.

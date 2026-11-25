@@ -21,7 +21,8 @@
           "fixed": "1.2.0"
         }
       ],
-      "cwes": []
+      "cwes": [],
+      "annotations": {}
     }
   ]
 }

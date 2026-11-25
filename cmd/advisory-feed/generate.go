@@ -15,10 +15,12 @@ type Options struct {
 	Now         func() time.Time // injected clock for feedTimestamp
 }
 
-// Result lists which products were written and which were left alone.
+// Result lists which products were written and which were left alone, and
+// carries the warnings the feed build raised.
 type Result struct {
 	Written   []string
 	Unchanged []string
+	Warnings  []string // from BuildFeeds, in order
 }
 
 // Generate fetches advisories, builds every product's feed, and writes the
@@ -30,7 +32,7 @@ func Generate(ctx context.Context, client *Client, cdn *CDN, reg Registry, opts 
 	if err != nil {
 		return Result{}, err
 	}
-	feeds, err := BuildFeeds(raw, reg)
+	feeds, warnings, err := BuildFeeds(raw, reg)
 	if err != nil {
 		return Result{}, err
 	}
@@ -42,7 +44,7 @@ func Generate(ctx context.Context, client *Client, cdn *CDN, reg Registry, opts 
 		data    []byte
 	}
 	var toWrite []pending
-	var res Result
+	res := Result{Warnings: warnings}
 	for _, p := range reg.Products {
 		f := feeds[p]
 		f.FeedTimestamp = now

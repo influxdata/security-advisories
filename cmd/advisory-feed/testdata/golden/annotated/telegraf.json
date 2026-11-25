@@ -1,0 +1,65 @@
+{
+  "feedVersion": 1,
+  "product": "telegraf",
+  "feedTimestamp": "2026-09-23T15:00:00Z",
+  "notice": "Generated for use by InfluxData products. The format of this file is not a supported API and may change without notice. Published InfluxData security advisories are at https://github.com/influxdata/security-advisories/security/advisories and are available through the GitHub REST API at https://api.github.com/repos/influxdata/security-advisories/security-advisories",
+  "advisories": [
+    {
+      "id": "GHSA-2fgh-3jmp-4qrv",
+      "cve": null,
+      "url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-2fgh-3jmp-4qrv",
+      "summary": "Telegraf 1.41.0 security release",
+      "description": "### Summary\n\nTelegraf 1.41.0 fixes a CVE in the Go standard library that affects HTTP listener plugins with TLS enabled.\r\n\r\n### Details\n\n#### Go toolchain\r\n\r\nUpdated to Go 1.27.4 to fix the following CVE in the Go standard library, which was confirmed to affect Telegraf.\r\n\r\n- [CVE-2026-00001](https://pkg.go.dev/vuln/GO-2026-0001): net/http: HTTP/2 server memory exhaustion from unbounded CONTINUATION frames.\r\n\r\n#### Patches\r\n\r\nFixed in Telegraf 1.41.0.\r\n\r\n#### Workarounds\r\n\r\nSet `tls_allowed_cacerts` on the listener plugins to require a client certificate.\r\n\r\n#### References\r\n\r\n- [Telegraf 1.41.0 release notes](https://docs.influxdata.com/telegraf/v1/release-notes/#v1410)\r\n\r\n### Proof of concept\n\nInfluxData does not publish reproduction steps for this issue. The configuration that exposes it is described under Impact. Upgrade to Telegraf 1.41.0 or apply the workaround under Details.\r\n\r\n### Impact\n\n- Denial of service against HTTP listener plugins: CVE-2026-00001 lets any client that can reach the listener exhaust the agent's memory. Agents are affected when `inputs.http_listener_v2` or `inputs.influxdb_listener` has `tls_cert` and `tls_key` set.\r\n\r\nAgents that do not run one of these plugins with TLS are not affected.\r\n\r\n### Updates\r\n\r\n- 2026-10-21: Widened the affected range after CVE-2026-00001 was confirmed to affect earlier releases.\r\n\r\n",
+      "severity": "medium",
+      "cvss": null,
+      "published": "2026-10-01T12:00:00Z",
+      "updated": "2026-10-21T09:00:00Z",
+      "withdrawn": null,
+      "affected": [
+        {
+          "introduced": null,
+          "fixed": "1.41.0"
+        }
+      ],
+      "cwes": [],
+      "annotations": {
+        "affected-plugins": [
+          "inputs.http_listener_v2",
+          "inputs.influxdb_listener"
+        ]
+      }
+    },
+    {
+      "id": "GHSA-5wx2-6cfg-7hjm",
+      "cve": "CVE-2026-31499",
+      "url": "https://github.com/influxdata/security-advisories/security/advisories/GHSA-5wx2-6cfg-7hjm",
+      "summary": "Telegraf 1.40.4 and Telegraf Controller 1.3.0 security release",
+      "description": "### Summary\n\nTelegraf 1.40.4 and Telegraf Controller 1.3.0 fix a credential exposure in the debug logs of the `inputs.http` plugin and in the Telegraf Controller request log.\r\n\r\n### Details\n\n#### Credential exposure in inputs.http debug logs (CVE-2026-31499)\r\n\r\nCVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N (6.2, Medium)\r\n\r\nWhen debug logging is enabled, the `inputs.http` plugin logs full request headers. Telegraf Controller logs the same headers when it tests a configuration that uses the plugin.\r\n\r\n#### Patches\r\n\r\nFixed in Telegraf 1.40.4 and Telegraf Controller 1.3.0.\r\n\r\n#### Workarounds\r\n\r\nDisable debug logging.\r\n\r\n#### References\r\n\r\n- [Telegraf 1.40.4 release notes](https://docs.influxdata.com/telegraf/v1/release-notes/#v1404)\r\n\r\n### Proof of concept\n\nInfluxData does not publish reproduction steps for this issue. The configuration that exposes it is described under Details: `inputs.http` with `debug = true`. Upgrade to Telegraf 1.40.4 and Telegraf Controller 1.3.0 or disable debug logging.\r\n\r\n### Impact\n\nCredential exposure: anyone with read access to the logs can recover the credentials the plugin sends.\r\n\r\n",
+      "severity": "medium",
+      "cvss": {
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "score": 6.2
+      },
+      "published": "2026-09-20T12:00:00Z",
+      "updated": "2026-09-20T12:00:00Z",
+      "withdrawn": null,
+      "affected": [
+        {
+          "introduced": "1.30.0",
+          "fixed": "1.40.4"
+        }
+      ],
+      "cwes": [
+        {
+          "id": "CWE-532",
+          "name": "Insertion of Sensitive Information into Log File"
+        }
+      ],
+      "annotations": {
+        "affected-plugins": [
+          "inputs.http"
+        ]
+      }
+    }
+  ]
+}

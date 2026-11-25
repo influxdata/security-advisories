@@ -41,7 +41,7 @@ func testCDN(srv *httptest.Server) *CDN {
 func sampleFeed(ids ...string) *Feed {
 	f := &Feed{FeedVersion: feedVersion, Product: "telegraf", FeedTimestamp: testTimestamp, Notice: feedNotice, Advisories: []Entry{}}
 	for _, id := range ids {
-		f.Advisories = append(f.Advisories, Entry{ID: id, Published: "2026-01-01T00:00:00Z", Affected: []Range{{Fixed: "1.0.0"}}, CWEs: []CWE{}})
+		f.Advisories = append(f.Advisories, Entry{ID: id, Published: "2026-01-01T00:00:00Z", Affected: []Range{{Fixed: "1.0.0"}}, CWEs: []CWE{}, Annotations: map[string][]string{}})
 	}
 	return f
 }

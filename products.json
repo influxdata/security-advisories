@@ -9,5 +9,11 @@
     "influxdb-enterprise",
     "chronograf",
     "kapacitor"
-  ]
+  ],
+  "blocks": {
+    "affected-plugins": {
+      "products": ["telegraf"],
+      "entry": "^(inputs|outputs|processors|aggregators|secretstores)\\.[a-z0-9_]+$"
+    }
+  }
 }
